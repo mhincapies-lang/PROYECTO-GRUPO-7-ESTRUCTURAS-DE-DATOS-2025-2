@@ -368,44 +368,8 @@ class MatterGraph {
         return matters;
     }
     
-    // Método para verificar si una materia puede ser tomada dado un conjunto de materias aprobadas
-    public boolean canTakeMatter(int matterId, Set<Integer> completedMatters) {
-        Matter matter = matters.get(matterId);
-        if (matter == null) return false;
-        
-        List<List<Integer>> prerequisites = matter.getPrerequisites();
-        if (prerequisites.isEmpty()) return true;
-        
-        // Todos los grupos de prerrequisitos deben cumplirse (AND)
-        for (List<Integer> prerequisiteGroup : prerequisites) {
-            boolean groupSatisfied = false;
-            // Al menos uno del grupo debe estar completo (OR)
-            for (Integer prereqId : prerequisiteGroup) {
-                if (completedMatters.contains(prereqId)) {
-                    groupSatisfied = true;
-                    break;
-                }
-            }
-            if (!groupSatisfied) {
-                return false;
-            }
-        }
-        return true;
-    }
-    
-    // Método para obtener todas las materias que se pueden tomar dado un conjunto de materias aprobadas
-    public List<Matter> getAvailableMatters(Set<Integer> completedMatters) {
-        List<Matter> available = new ArrayList<>();
-        for (Matter matter : matters.values()) {
-            if (!completedMatters.contains(matter.getId()) && 
-                canTakeMatter(matter.getId(), completedMatters)) {
-                available.add(matter);
-            }
-        }
-        return available;
-    }
-    
-    // Método para imprimir el grafo (solo algunas materias como ejemplo)
+  
+    // Método para imprimir el grafo 
     public void printGraph() {
         System.out.println("=== GRAFO DE MATERIAS ===\n");
         for (Matter matter : matters.values()) {

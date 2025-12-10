@@ -154,6 +154,15 @@ public class PlanificadorSemestresGUI extends JFrame {
             } else {
                 boolean first = true;
                 for (Integer idMateria : materiasSemestre) {
+
+                    // *** FIX PARA TRABAJO DE GRADO / PASANTÍA ***
+                    if (idMateria == -1) {
+                        if (!first) sb.append(" | ");
+                        sb.append("TRABAJO DE GRADO / PASANTÍA");
+                        first = false;
+                        continue;
+                    }
+
                     Matter m = graph.getMatter(idMateria);
                     String nombre = (m != null) ? m.getName() : "?";
                     if (!first) sb.append(" | ");

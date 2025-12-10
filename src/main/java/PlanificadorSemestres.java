@@ -23,105 +23,156 @@ public class PlanificadorSemestres {
         Map<Integer, Matter> matters = graph.getMatters();
         List<List<Integer>> resultado = new ArrayList<>();
         Set<Integer> cursadas = new HashSet<>();
-        
+
+        // ============================
         // Calcular indegree inicial
+        // ============================
         Map<Integer, Integer> indegree = calcularIndegree(matters);
-        
-        // Crear cola con materias disponibles (sin prerequisitos)
+
+        // =======================================================
+        // Construir dependencias inversas sin tocar clases externas
+        // dependientes[x] = materias que dependen de x
+        // =======================================================
+        Map<Integer, List<Integer>> dependientes = new HashMap<>();
+        for (int id : matters.keySet()) dependientes.put(id, new ArrayList<>());
+
+        for (Matter m : matters.values()) {
+            List<List<Integer>> prereqs = m.getPrerequisites();
+            if (prereqs == null) continue;
+
+            for (List<Integer> grupo : prereqs) {
+                for (int pid : grupo) {
+                    // Asegurarse de inicializar lista por si el pid no existe en matters (robusto)
+                    dependientes.computeIfAbsent(pid, k -> new ArrayList<>()).add(m.getId());
+                }
+            }
+        }
+
+        // ============================
+        // Materias disponibles inicialmente (indegree == 0)
+        // ============================
         ArrayQueue<Integer> cola = new ArrayQueue<>(matters.size() + 5);
         for (int id : matters.keySet()) {
-            if (indegree.get(id) == 0) {
+            if (indegree.getOrDefault(id, 0) == 0) {
                 cola.enqueue(id);
             }
         }
-        
-        // Planificación automática
+
+        // ============================
+        // Planificación por semestres (Kahn + llenar por capacidad)
+        // ============================
         while (!cola.isEmpty()) {
+
             List<Integer> semestre = new ArrayList<>();
-            
-            // Llenar el semestre hasta el máximo permitido
+
+            // Llenar semestre hasta el máximo permitido
             while (semestre.size() < maxPerSemester && !cola.isEmpty()) {
                 int cur = cola.dequeue();
-                semestre.add(cur);
-                cursadas.add(cur);
+                if (!cursadas.contains(cur)) {
+                    semestre.add(cur);
+                    cursadas.add(cur);
+                }
             }
-            
+
             resultado.add(semestre);
-            
-            // Reducir indegree de materias dependientes
+
+            // Reducir indegree de materias dependientes de
+            // cada materia del semestre (re-evaluando grupos AND/OR)
             for (int aprobada : semestre) {
-                for (Matter m : matters.values()) {
-                    if (cursadas.contains(m.getId())) continue;
-                    
-                    List<List<Integer>> prereqs = m.getPrerequisites();
-                    if (prereqs == null) continue;
-                    
+
+                List<Integer> deps = dependientes.get(aprobada);
+                if (deps == null) continue;
+
+                for (int depId : deps) {
+
+                    if (cursadas.contains(depId)) continue;
+
+                    Matter dep = matters.get(depId);
+                    if (dep == null) continue; // robustez
+
+                    List<List<Integer>> prereqs = dep.getPrerequisites();
+                    if (prereqs == null || prereqs.isEmpty()) {
+                        // no prereqs: debería haber indegree 0 ya
+                        if (indegree.getOrDefault(depId, 0) != 0) {
+                            indegree.put(depId, 0);
+                            cola.enqueue(depId);
+                        }
+                        continue;
+                    }
+
+                    // Recalcular cuántos grupos (AND) quedan pendientes:
+                    int gruposPendientes = 0;
                     for (List<Integer> grupo : prereqs) {
-                        // Manejar prerequisitos OR
-                        boolean tienePrereq = false;
-                        for (int prereqId : grupo) {
-                            if (prereqId == aprobada) {
-                                tienePrereq = true;
+                        boolean grupoSatisfecho = false;
+                        for (int pid : grupo) {
+                            if (cursadas.contains(pid)) {
+                                grupoSatisfecho = true;
                                 break;
                             }
                         }
-                        
-                        if (tienePrereq) {
-                            int nuevo = indegree.get(m.getId()) - 1;
-                            indegree.put(m.getId(), nuevo);
-                            
-                            if (nuevo == 0) {
-                                cola.enqueue(m.getId());
-                            }
-                            break; // Solo reducir una vez por grupo OR
-                        }
+                        if (!grupoSatisfecho) gruposPendientes++;
+                    }
+
+                    int prev = indegree.getOrDefault(depId, 0);
+                    indegree.put(depId, gruposPendientes);
+
+                    if (prev > 0 && gruposPendientes == 0) {
+                        cola.enqueue(depId);
                     }
                 }
             }
         }
-        
-        // Validación final
+
+        // ===================================================
+        // Validación final (si quedan materias no cursadas)
+        // ===================================================
         if (cursadas.size() != matters.size()) {
             System.out.println("\n[!] ADVERTENCIA: No se cursaron todas las materias.");
             System.out.println("Cursadas: " + cursadas.size() + " de " + matters.size());
-            
-            // Mostrar materias no cursadas
+
             System.out.println("\nMaterias no cursadas:");
             for (int id : matters.keySet()) {
                 if (!cursadas.contains(id)) {
                     Matter m = matters.get(id);
-                    System.out.println("  - " + id + ": " + m.getName());
-                    List<List<Integer>> prereqs = m.getPrerequisites();
+                    System.out.println("  - " + id + ": " + (m != null ? m.getName() : "Materia no encontrada"));
+                    List<List<Integer>> prereqs = (m != null ? m.getPrerequisites() : null);
                     if (prereqs != null) {
                         System.out.println("    Prerrequisitos: " + prereqs);
                     }
                 }
             }
         }
-        
+
+        // ===================================================
+        // Añadir semestre extra de trabajo de grado/pasantía
+        // ID simbólico: -1
+        // ===================================================
+        List<Integer> trabajoDeGrado = new ArrayList<>();
+        trabajoDeGrado.add(-1);  // ID especial que representa TRABAJO DE GRADO / PASANTÍA
+        resultado.add(trabajoDeGrado);
+
         return resultado;
     }
-    
+
     /**
      * Calcula el indegree inicial de todas las materias.
+     * Cada grupo interno de prereqs representa un requisito (AND entre grupos).
      */
     private Map<Integer, Integer> calcularIndegree(Map<Integer, Matter> matters) {
         Map<Integer, Integer> indegree = new HashMap<>();
-        
+
         for (int id : matters.keySet()) {
             indegree.put(id, 0);
         }
-        
+
         for (Matter m : matters.values()) {
             List<List<Integer>> prereqs = m.getPrerequisites();
             if (prereqs == null || prereqs.isEmpty()) continue;
-            
-            // Cada grupo de prerequisitos (lista interna) es un requisito
-            // Si hay múltiples elementos en un grupo, es OR
-            // Si hay múltiples grupos, todos son AND
+
+            // Cada grupo (lista interna) es tratado como una "unidad" que debe satisfacerse (AND).
             indegree.put(m.getId(), prereqs.size());
         }
-        
+
         return indegree;
     }
 
@@ -132,20 +183,25 @@ public class PlanificadorSemestres {
         System.out.println("============================================================");
         System.out.println("           PLAN DE ESTUDIOS - RESUMEN FINAL");
         System.out.println("============================================================\n");
-        
+
         int totalMaterias = 0;
-        
+
         for (int i = 0; i < plan.size(); i++) {
             System.out.println("Semestre " + (i + 1) + " (" + plan.get(i).size() + " materias)");
             System.out.println("------------------------------------------------------------");
             for (int id : plan.get(i)) {
-                Matter m = graph.getMatter(id);
-                System.out.println("  " + id + " - " + (m != null ? m.getName() : "Materia no encontrada"));
+                if (id == -1) {
+                    // Impresión legible para el semestre extra
+                    System.out.println("  TRABAJO DE GRADO / PASANTÍA");
+                } else {
+                    Matter m = graph.getMatter(id);
+                    System.out.println("  " + id + " - " + (m != null ? m.getName() : "Materia no encontrada"));
+                }
             }
             System.out.println();
             totalMaterias += plan.get(i).size();
         }
-        
+
         System.out.println("============================================================");
         System.out.println("Total de semestres: " + plan.size());
         System.out.println("Total de materias: " + totalMaterias);
